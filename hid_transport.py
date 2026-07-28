@@ -22,6 +22,7 @@ class HIDTransport:
         self._vid = vid
         self._pid = pid
         self._dev = None
+        self._path = None
 
     # ---- discovery ----
 
@@ -51,9 +52,11 @@ class HIDTransport:
         self._dev = _hid.device()
         try:
             self._dev.open_path(path.encode())
+            self._path = path
         except OSError:
             try:
                 self._dev.open(self._vid, self._pid)
+                self._path = f"{self._vid:04X}:{self._pid:04X}"
             except OSError:
                 self._dev = None
                 return False
@@ -67,6 +70,11 @@ class HIDTransport:
     @property
     def is_open(self) -> bool:
         return self._dev is not None
+
+    @property
+    def path(self) -> Optional[str]:
+        """HID device path used for the current connection (e.g. /dev/hidraw3)."""
+        return self._path
 
     # ---- context manager ----
 

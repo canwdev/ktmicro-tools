@@ -191,6 +191,11 @@ class KT02H20:
     def connected(self) -> bool:
         return self._hid.is_open
 
+    @property
+    def hid_path(self) -> Optional[str]:
+        """HID device path of the current connection."""
+        return self._hid.path
+
     def __enter__(self):
         if not self.open():
             raise ConnectionError("KT02H20 device not found")

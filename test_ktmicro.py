@@ -14,6 +14,7 @@ from kt02h20 import (
     FILTER_TYPES, PGA_ADC_GAINS, PGA_DAC_GAINS,
 )
 from ktmicro import _pga_resolve
+from ktmicro_tui import _biquad_coeffs, _biquad_db, band_response_db, total_response_db
 
 
 class TestNgByteEncoding(unittest.TestCase):
@@ -166,6 +167,60 @@ class TestPgaResolve(unittest.TestCase):
     def test_no_matching_db_falls_to_index(self):
         # '5' doesn't match any dB value but is a valid index
         self.assertEqual(_pga_resolve(PGA_ADC_GAINS, '5'), 5)
+
+
+class TestBiquad(unittest.TestCase):
+    def test_peaking_at_center(self):
+        c = _biquad_coeffs(0, 1000, 6.0, 1.0)
+        self.assertAlmostEqual(_biquad_db(c, 1000), 6.0, places=1)
+
+    def test_peaking_cut(self):
+        c = _biquad_coeffs(0, 1000, -6.0, 1.0)
+        self.assertAlmostEqual(_biquad_db(c, 1000), -6.0, places=1)
+
+    def test_peaking_far_away_is_flat(self):
+        c = _biquad_coeffs(0, 1000, 6.0, 1.0)
+        self.assertAlmostEqual(_biquad_db(c, 20), 0.0, places=1)
+
+    def test_lpf_at_cutoff(self):
+        c = _biquad_coeffs(1, 1000, 0.0, 0.707)
+        self.assertAlmostEqual(_biquad_db(c, 1000), -3.0, places=1)
+
+    def test_lpf_attenuates_high(self):
+        c = _biquad_coeffs(1, 1000, 0.0, 0.707)
+        self.assertLess(_biquad_db(c, 10000), -30.0)
+
+    def test_hpf_at_cutoff(self):
+        c = _biquad_coeffs(2, 1000, 0.0, 0.707)
+        self.assertAlmostEqual(_biquad_db(c, 1000), -3.0, places=1)
+
+    def test_hpf_attenuates_low(self):
+        c = _biquad_coeffs(2, 1000, 0.0, 0.707)
+        self.assertLess(_biquad_db(c, 100), -30.0)
+
+    def test_low_shelf_dc(self):
+        c = _biquad_coeffs(3, 500, 6.0, 0.707)
+        self.assertAlmostEqual(_biquad_db(c, 1), 6.0, places=0)
+
+    def test_high_shelf_nyquist(self):
+        c = _biquad_coeffs(4, 5000, -6.0, 0.707)
+        self.assertAlmostEqual(_biquad_db(c, 23000), -6.0, places=0)
+
+    def test_passthrough_zero_freq(self):
+        c = _biquad_coeffs(0, 0, 6.0, 1.0)
+        self.assertEqual(_biquad_db(c, 1000), 0.0)
+
+    def test_band_response_zero_freq(self):
+        self.assertEqual(band_response_db({'freq': 0, 'gain': 5, 'ftype': 0, 'q': 1}, 1000), 0.0)
+
+    def test_total_disabled(self):
+        bands = [{'freq': 1000, 'gain': 6.0, 'ftype': 0, 'q': 1.0}]
+        self.assertEqual(total_response_db(bands, 1000, enabled=False), 0.0)
+
+    def test_total_sums_bands(self):
+        bands = [{'freq': 1000, 'gain': 6.0, 'ftype': 0, 'q': 1.0},
+                 {'freq': 1000, 'gain': -2.0, 'ftype': 0, 'q': 1.0}]
+        self.assertAlmostEqual(total_response_db(bands, 1000), 4.0, places=1)
 
 
 if __name__ == '__main__':
