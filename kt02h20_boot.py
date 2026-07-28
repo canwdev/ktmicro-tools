@@ -46,6 +46,17 @@ class KT02H20Boot:
     def connected(self) -> bool:
         return self._hid.is_open
 
+    # ---- context manager ----
+
+    def __enter__(self):
+        if not self.open():
+            raise ConnectionError("KT02H20 bootloader device not found")
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
     # ---- protocol steps ----
 
     def sync(self, retries: int = 5) -> bool:
@@ -56,7 +67,7 @@ class KT02H20Boot:
                 resp = self._hid.recv_feature()
                 if resp and len(resp) >= 2 and resp[1] == BL_ACK:
                     return True
-            except Exception:
+            except OSError:
                 pass
             time.sleep(0.2)
         return False
@@ -76,7 +87,7 @@ class KT02H20Boot:
     def chip_id(self) -> Optional[str]:
         self._hid.send_feature(struct.pack('<I', CMD_CHP))
         resp = self._hid.recv_feature()
-        if resp and len(resp) >= 6 and resp[4] == 0x12:
+        if resp and len(resp) >= 6 and resp[4] == 0x12:  # 0x12 = chip-ID response marker
             end = resp.find(b'\x00', 5)
             if end < 0:
                 end = len(resp) - 1

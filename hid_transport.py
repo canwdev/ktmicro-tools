@@ -1,6 +1,8 @@
 """Low-level USB HID transport for KTMicro chips."""
 
 import glob
+import os
+
 import hid as _hid
 
 from typing import Optional, List
@@ -35,8 +37,8 @@ class HIDTransport:
                 vid_str = f'{self._vid:04X}'
                 pid_str = f'{self._pid:04X}'
                 if vid_str in content and pid_str in content:
-                    return '/dev/' + ue.split('/')[4]
-            except Exception:
+                    return '/dev/' + os.path.basename(os.path.dirname(ue))
+            except (OSError, PermissionError):
                 continue
         return None
 
@@ -66,6 +68,17 @@ class HIDTransport:
     def is_open(self) -> bool:
         return self._dev is not None
 
+    # ---- context manager ----
+
+    def __enter__(self):
+        if not self.open():
+            raise ConnectionError(f"KTMicro device {self._vid:04X}:{self._pid:04X} not found")
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
     # ---- interrupt transfers (run-mode DSP) ----
 
     def write_report(self, data: bytes):
@@ -87,6 +100,8 @@ class HIDTransport:
         self._dev.send_feature_report(b'\x00' + data)
 
     def recv_feature(self, length: int = 64) -> Optional[bytes]:
-        """Read feature report."""
+        """Read feature report. Returns None on timeout, bytes otherwise."""
         resp = self._dev.get_feature_report(0, length)
-        return bytes(resp) if isinstance(resp, list) else resp
+        if resp is None:
+            return None
+        return bytes(resp)
