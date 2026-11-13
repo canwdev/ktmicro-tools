@@ -1,13 +1,4 @@
-# ktmicro-tools — KT02H20 USB 音频 DSP 工具
-
-针对 **昆腾微 KTMicro KT02H20** USB 音频 DSP 芯片（JCALLY JM12 等同方案小尾巴）的
-Python 命令行工具与交互式 TUI。寄存器协议从厂商工具 `KT_USB_APP.exe` 逆向而来，
-本仓库所有结论均在该芯片上实机验证过。
-
-TUI 演示：
-<video src="demo.webm" controls muted loop></video>
-
----
+本项目 fork 自 [gxcreator/ktmicro-tools](https://github.com/gxcreator/ktmicro-tools)。
 
 ## 本机实测芯片信息
 
