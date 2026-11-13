@@ -440,7 +440,24 @@ def cmd_flash(args):
         print("Device not found (bootloader mode?)"); return
 
 
+def _fix_console_encoding():
+    """Make box-drawing characters render on Windows consoles."""
+    if sys.platform != 'win32':
+        return
+    try:
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleOutputCP(65001)
+    except Exception:
+        pass
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError, ValueError):
+            pass
+
+
 def main():
+    _fix_console_encoding()
     p = argparse.ArgumentParser(description='KTMicro USB Audio Chip Tool')
     p.add_argument('-v', '--verbose', action='store_true', help='Verbose debug output')
     sp = p.add_subparsers(dest='cmd')

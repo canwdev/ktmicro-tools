@@ -1,0 +1,2 @@
+hidapi>=0.14
+windows-curses>=2.3; sys_platform == "win32"

@@ -54,7 +54,37 @@ RX: 4B  ...  [bytes 7-10 = 0x03 or 0x4F]
 | 0x5B | `[PID:16][VID:16]` packed — USB VID/PID (writable) |
 | 0xE1 | Magic: 0x12345678 (device-side, not used by the app) |
 
+## Persistence (measured, 2026-01 on 0x31B2:0x2038)
+
+Runtime register writes are **volatile**:
+
+- Set `0x3B = 1` (A_DAC = -18 dB) and `0x66 = 0x…E8` (-12 dB), verified by
+  ear (min volume dropped ~16.5 dB). After unplug/replug both reverted to
+  `0x3B = 12` (-1.5 dB) and `0x66 = 0x00000200` (0 dB).
+- So the run-mode firmware loads a factory config at boot and offers **no**
+  commit-to-NVM operation in the known protocol.
+
+Hard constraints found while investigating:
+
+- **No feature-report channel in run mode.** `HidP_GetCaps` on the protocol
+  interface returns `input_len=11 output_len=11 feature_len=0`, i.e. only
+  the 11-byte interrupt reports exist. The bootloader's `send_feature`
+  commands (`.KTM`, flash writes) are therefore unreachable from run mode.
+- **`0x08` hangs the device.** A read-only probe with command `0x08`
+  (documented below as "Read Extended") made the chip emit a continuous
+  noise until power-cycled. Do not send it again.
+- Run mode enumerates as PID `0x2038` (not the documented `0x0111`), so the
+  bootloader PID `0x0101` is a different, unreachable-from-run-mode target.
+
+Conclusion: persistence is only possible by (a) re-flashing a firmware whose
+baked defaults differ, or (b) a vendor commit command that is not in the known
+protocol. Both need the vendor tool (`KT_USB_APP.exe`) or a flash dump.
+
 ### Volume (PGA + Digital Gain)
+
+> **Measured:** only the analog A_DAC PGA (0x3B) audibly changes the output.
+> Writing 0x66 (DIG_DAC) reads back correctly but has no audible effect on
+> this firmware. Host (Windows) volume does NOT touch any register in 0x00-0xFF.
 | Addr | Description |
 |------|-------------|
 | 0x3A | A_ADC analog PGA gain — index into {0, -6, 8, 14, 20, 26, 32, 44 dB} |

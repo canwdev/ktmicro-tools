@@ -9,20 +9,26 @@ from typing import Optional, List
 
 
 KT_VID = 0x31B2
-KT_PID = 0x0111
+KT_PID = 0x0111          # PID documented for run mode
+
+# The DSP protocol lives on HID interface 3 of the composite device.
+# Real units also enumerate under other PIDs (e.g. 0x2038), so discovery
+# treats the PID as a hint rather than a hard requirement.
+KT_INTERFACE = 3
 
 RPT_ID   = 0x4B
 RPT_SIZE = 11
 
 
 class HIDTransport:
-    """Raw HID communication over /dev/hidraw on Linux."""
+    """Raw HID communication with KTMicro chips (Linux hidraw / Windows HID)."""
 
     def __init__(self, vid: int = KT_VID, pid: int = KT_PID):
         self._vid = vid
         self._pid = pid
         self._dev = None
         self._path = None
+        self._info = None
 
     # ---- discovery ----
 
@@ -31,41 +37,84 @@ class HIDTransport:
         return list(_hid.enumerate())
 
     def find_hidraw(self) -> Optional[str]:
+        """Scan Linux sysfs for any hidraw node of this VID (PID-agnostic)."""
+        vid_str = f'{self._vid:04X}'
         for ue in sorted(glob.glob('/sys/class/hidraw/hidraw*/device/uevent')):
             try:
                 with open(ue) as f:
                     content = f.read().upper()
-                vid_str = f'{self._vid:04X}'
-                pid_str = f'{self._pid:04X}'
-                if vid_str in content and pid_str in content:
-                    return '/dev/' + os.path.basename(os.path.dirname(ue))
             except (OSError, PermissionError):
                 continue
+            if vid_str in content:
+                return '/dev/' + os.path.basename(os.path.dirname(ue))
         return None
+
+    def find_device(self) -> Optional[dict]:
+        """Pick the HID interface that carries the protocol.
+
+        Preference: exact VID+PID match, then interface 3, then any
+        device of this vendor (covers undocumented PIDs like 0x2038).
+        """
+        devs = [d for d in self.list_devices()
+                if d.get('vendor_id') == self._vid]
+        if not devs:
+            return None
+        exact = [d for d in devs if d.get('product_id') == self._pid]
+        if exact:
+            return exact[0]
+        iface = [d for d in devs
+                 if d.get('interface_number') == KT_INTERFACE]
+        return (iface or devs)[0]
 
     # ---- open / close ----
 
-    def open(self) -> bool:
-        path = self.find_hidraw()
-        if path is None:
-            return False
-        self._dev = _hid.device()
+    def _open_path(self, path) -> bool:
+        if isinstance(path, str):
+            path = path.encode()
+        dev = _hid.device()
         try:
-            self._dev.open_path(path.encode())
-            self._path = path
+            dev.open_path(path)
         except OSError:
-            try:
-                self._dev.open(self._vid, self._pid)
-                self._path = f"{self._vid:04X}:{self._pid:04X}"
-            except OSError:
-                self._dev = None
-                return False
+            return False
+        self._dev = dev
+        self._path = path.decode(errors='replace') \
+            if isinstance(path, bytes) else path
+        return True
+
+    def open(self) -> bool:
+        self.close()
+
+        # 1) enumerate via hidapi: works on Linux (hidraw path) and
+        #    Windows (\\?\HID#... device path)
+        found = self.find_device()
+        if found and found.get('path'):
+            if self._open_path(found['path']):
+                self._pid = found.get('product_id', self._pid)
+                self._info = found
+                return True
+
+        # 2) Linux fallback: raw sysfs scan by VID
+        hidraw = self.find_hidraw()
+        if hidraw and self._open_path(hidraw):
+            return True
+
+        # 3) last resort: open by VID/PID (first matching interface)
+        try:
+            dev = _hid.device()
+            dev.open(self._vid, self._pid)
+        except OSError:
+            self._dev = None
+            self._path = None
+            return False
+        self._dev = dev
+        self._path = f"{self._vid:04X}:{self._pid:04X}"
         return True
 
     def close(self):
         if self._dev:
             self._dev.close()
             self._dev = None
+        self._info = None
 
     @property
     def is_open(self) -> bool:
@@ -80,12 +129,19 @@ class HIDTransport:
 
     def __enter__(self):
         if not self.open():
-            raise ConnectionError(f"KTMicro device {self._vid:04X}:{self._pid:04X} not found")
+            raise ConnectionError(
+                f"KTMicro device VID=0x{self._vid:04X} (HID interface "
+                f"{KT_INTERFACE}) not found")
         return self
 
     def __exit__(self, *exc):
         self.close()
         return False
+
+    @property
+    def device_info(self) -> Optional[dict]:
+        """Enumeration record of the device that got opened (None if closed)."""
+        return self._info
 
     # ---- interrupt transfers (run-mode DSP) ----
 
